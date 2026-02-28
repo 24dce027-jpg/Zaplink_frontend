@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FileText,
@@ -13,8 +13,10 @@ import {
   Calendar,
   Eye,
 } from "lucide-react";
+import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
+import { InfiniteScrollList } from "./InfiniteScrollList";
 import { cn } from "../lib/utils";
-import axios from "axios";
+import { type ApiError, getZaps } from "../services/api";
 
 // ─── Types ───
 
@@ -84,9 +86,7 @@ const defaultType = {
 };
 
 const PAGE_SIZE = 20;
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL as string | undefined;
-const USE_MOCK_ZAPS =
-  import.meta.env.VITE_USE_MOCK_ZAPS === "true" || !BACKEND_URL;
+const USE_MOCK_ZAPS = import.meta.env.VITE_USE_MOCK_ZAPS === "true";
 const MOCK_TOTAL_ITEMS = 1500;
 
 function createMockZap(index: number): ZapItem {
@@ -131,18 +131,14 @@ async function fetchZapsPage(
     };
   }
 
-  const response = await axios.get(
-    `${BACKEND_URL}/api/zaps`,
-    {
-      params: {
-        page: page + 1,
-        limit: PAGE_SIZE,
-      },
-      withCredentials: true,
-    }
-  );
+  let data: any;
 
-  const data = response.data;
+  try {
+    data = await getZaps(page + 1, PAGE_SIZE);
+  } catch (error) {
+    const err = error as ApiError;
+    throw new Error(err.message || "Failed to load zaps");
+  }
 
   // Support raw arrays
   if (Array.isArray(data)) {
@@ -255,34 +251,39 @@ function ZapCard({ item }: { item: ZapItem }) {
 // ─── Dashboard component ───
 
 export default function Dashboard() {
-  const [items, setItems] = useState<ZapItem[]>([]);
-  const [page, setPage] = useState(0); // 0-indexed to match fetchZapsPage logic
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const [hasMore, setHasMore] = useState(true);
+  const {
+    items,
+    isLoading,
+    isFetchingMore,
+    hasMore,
+    error,
+    loadMore,
+    retry,
+    refresh,
+  } = useInfiniteScroll<ZapItem>({
+    fetchPage: fetchZapsPage,
+    pageSize: PAGE_SIZE,
+  });
 
-  // Fetch data when page changes
+  const initializedRef = useRef(false);
+
+  // Load first page on mount only
   useEffect(() => {
-    let active = true;
-    setIsLoading(true);
-    setError(null);
-    fetchZapsPage(page)
-      .then((res) => {
-        if (!active) return;
-        setItems(res.items);
-        setHasMore(res.hasMore);
-        setIsLoading(false);
-      })
-      .catch((err: Error) => {
-        if (!active) return;
-        setError(err);
-        setIsLoading(false);
-      });
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      loadMore();
+    }
+  }, []);
 
-    return () => {
-      active = false;
-    };
-  }, [page]);
+  const renderItem = useCallback(
+    (item: ZapItem, _index: number) => <ZapCard item={item} />,
+    []
+  );
+
+  const getItemKey = useCallback(
+    (item: ZapItem, index: number) => item._id ?? index,
+    []
+  );
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -295,59 +296,30 @@ export default function Dashboard() {
             All your shared files and links in one place.
           </p>
           {USE_MOCK_ZAPS && (
-            <p className="text-xs text-primary mt-2">
+            <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-amber-900 text-xs">
               Running in mock mode. Set VITE_BACKEND_URL and VITE_USE_MOCK_ZAPS=false to use live data.
-            </p>
+            </div>
           )}
         </div>
 
-        <div className="flex-1 flex flex-col">
-          {isLoading ? (
-            <div className="text-center py-12 text-muted-foreground animate-pulse">
-              Loading Zaps...
-            </div>
-          ) : error ? (
-            <div className="text-center py-12 text-destructive">
-              Failed to load Zaps. Please try again.
-            </div>
-          ) : items.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              No Zaps found. Create one to get started!
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {items.map((item: ZapItem) => (
-                <ZapCard key={item._id || item.shortId} item={item} />
-              ))}
-            </div>
-          )}
-
-          {/* Pagination Controls */}
-          {(!isLoading && !error && (items.length > 0 || page > 0)) && (
-            <div className="flex items-center justify-between py-6 mt-6 border-t border-border/50">
-              <button
-                onClick={() => setPage((p: number) => Math.max(0, p - 1))}
-                disabled={page === 0 || isLoading}
-                className="px-4 py-2 text-sm font-medium rounded-lg border bg-card hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none transition-colors"
-                aria-label="Previous Page"
-              >
-                Previous
-              </button>
-
-              <span className="text-sm font-medium text-foreground">
-                Page {page + 1}
-              </span>
-
-              <button
-                onClick={() => setPage((p: number) => p + 1)}
-                disabled={!hasMore || isLoading}
-                className="px-4 py-2 text-sm font-medium rounded-lg border bg-card hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none transition-colors"
-                aria-label="Next Page"
-              >
-                Next
-              </button>
-            </div>
-          )}
+        {/* The infinite scroll list takes up the remaining height */}
+        <div className="flex-1 min-h-0" style={{ height: "calc(100vh - 220px)" }}>
+          <InfiniteScrollList<ZapItem>
+            items={items}
+            loadMore={loadMore}
+            hasMore={hasMore}
+            isLoading={isLoading}
+            isFetchingMore={isFetchingMore}
+            error={error}
+            onRetry={retry}
+            onRefresh={refresh}
+            renderItem={renderItem}
+            getItemKey={getItemKey}
+            estimateSize={76}
+            overscan={8}
+            skeletonCount={8}
+            loadMoreThreshold={5}
+          />
         </div>
       </main>
     </div>

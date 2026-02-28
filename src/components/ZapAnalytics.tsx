@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axios, { AxiosError } from "axios";
+import { type ApiError, getZapAnalytics } from "../services/api";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import {
@@ -56,18 +56,21 @@ const ZapAnalytics: React.FC = () => {
 
   useEffect(() => {
     const fetchAnalytics = async () => {
+      if (!shortId) {
+        setError("Invalid Zap ID");
+        toast.error("Invalid Zap ID");
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
         setError(null);
-        const response = await axios.get(
-          `${import.meta.env.VITE_BACKEND_URL}/api/zaps/${shortId}/analytics`
-        );
-        setData(response.data.data);
+        const response = await getZapAnalytics(shortId);
+        setData(response.data);
       } catch (err) {
-        const error = err as AxiosError<{ message: string }>;
+        const error = err as ApiError;
         const errorMessage =
-          error.response?.data?.message ||
-          "Failed to fetch analytics. Please try again.";
+          error.message || "Failed to fetch analytics. Please try again.";
         setError(errorMessage);
         toast.error(errorMessage);
       } finally {

@@ -6,6 +6,7 @@ import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
 import { LinkIcon, Check, Copy } from "lucide-react";
+import { shortenUrl } from "../services/api";
 
 export default function UrlShortenerPage() {
   const [url, setUrl] = useState("");
@@ -27,25 +28,26 @@ export default function UrlShortenerPage() {
 
     setLoading(true);
 
-    const res = await fetch("YOUR_BACKEND_URL", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
+    try {
+      const data = await shortenUrl(url);
+      setResult({
+        shortUrl: data.shortUrl,
+        qrCode: data.qrCode || "",
+        originalUrl: url,
+      });
 
-    const data = await res.json();
+      const newLink: RecentLink = {
+        id: Date.now(),
+        url: data.shortUrl,
+        createdAt: new Date().toISOString(),
+      };
 
-    setResult(data);
-
-    const newLink: RecentLink = {
-      id: Date.now(),
-      url: data.shortUrl,
-      createdAt: new Date().toISOString(),
-    };
-
-    saveRecentLink(newLink);
-
-    setLoading(false);
+      saveRecentLink(newLink);
+    } catch (error) {
+      toast.error("Failed to shorten URL. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const copyToClipboard = async () => {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import axios, { AxiosError } from "axios";
+import { type ApiError, deleteZap } from "../services/api";
 import { toast } from "sonner";
 import { Trash2, AlertTriangle, Loader2, Shield } from "lucide-react";
 import {
@@ -39,8 +39,9 @@ export default function DeleteZapModal({
   const [error, setError] = useState<string | null>(null);
 
   const validateTokenFormat = (token: string): boolean => {
-    // Basic validation: token should not be empty and should have reasonable length
-    return token.trim().length > 0;
+    const trimmed = token.trim();
+    // Allow common token formats while rejecting obvious invalid input
+    return /^[A-Za-z0-9_-]{8,128}$/.test(trimmed);
   };
 
   const handleDelete = async () => {
@@ -56,18 +57,10 @@ export default function DeleteZapModal({
     setIsDeleting(true);
 
     try {
-      const response = await axios.delete(
-        `${import.meta.env.VITE_BACKEND_URL}/api/zaps/${zapId}`,
-        {
-          data: { deletionToken: deletionToken.trim() },
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const response = await deleteZap(zapId, deletionToken.trim());
 
       // Success response (200)
-      if (response.data.success) {
+      if (response.success) {
         toast.success("Zap deleted successfully", {
           description: "Your Zap has been permanently removed from the system.",
         });
@@ -75,10 +68,11 @@ export default function DeleteZapModal({
         onDeleteSuccess();
       }
     } catch (err) {
-      const error = err as AxiosError<DeleteErrorResponse>;
+      const error = err as ApiError;
 
-      if (error.response) {
-        const { status, data } = error.response;
+      if (error.status) {
+        const status = error.status;
+        const data = error.data as DeleteErrorResponse | undefined;
 
         switch (status) {
           case 401:
@@ -124,12 +118,6 @@ export default function DeleteZapModal({
               description: "Failed to delete Zap. Please try again.",
             });
         }
-      } else if (error.request) {
-        // Network error - no response received
-        setError("Network error. Please check your connection and try again.");
-        toast.error("Network Error", {
-          description: "Unable to connect to the server. Please check your internet connection.",
-        });
       } else {
         // Other errors
         setError("An unexpected error occurred. Please try again.");

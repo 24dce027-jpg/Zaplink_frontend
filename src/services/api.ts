@@ -1,10 +1,13 @@
 import axios, { AxiosError } from "axios";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
 if (!BACKEND_URL) {
   console.error("VITE_BACKEND_URL environment variable is not defined");
 }
+
+const apiUrl = (path: string) =>
+  BACKEND_URL ? `${BACKEND_URL}${path}` : path;
 
 // Types for API responses
 export interface ZapUploadResponse {
@@ -32,6 +35,7 @@ export interface ZapViewResponse {
 export interface ApiError {
   message: string;
   status?: number;
+  data?: unknown;
 }
 
 // Upload Zap (file, URL, or text)
@@ -40,7 +44,7 @@ export const uploadZap = async (
 ): Promise<ZapUploadResponse> => {
   try {
     const response = await axios.post(
-      `${BACKEND_URL}/api/zaps/upload`,
+      apiUrl("/api/zaps/upload"),
       formData,
       {
         headers: {
@@ -81,10 +85,7 @@ export const viewZap = async (
           },
         };
 
-    const response = await axios.get(
-      `${BACKEND_URL}/api/zaps/${shortId}`,
-      config,
-    );
+    const response = await axios.get(apiUrl(`/api/zaps/${shortId}`), config);
 
     return response.data;
   } catch (error) {
@@ -103,7 +104,7 @@ export const shortenUrl = async (
 ): Promise<{ shortUrl: string; qrCode?: string }> => {
   try {
     const response = await axios.post(
-      `${BACKEND_URL}/api/url-shortener`,
+      apiUrl("/api/url-shortener"),
       { url },
       {
         headers: {
@@ -126,10 +127,63 @@ export const shortenUrl = async (
 // Health check endpoint
 export const healthCheck = async (): Promise<boolean> => {
   try {
-    const response = await axios.get(`${BACKEND_URL}/health`);
+    const response = await axios.get(apiUrl("/health"));
     return response.status === 200;
   } catch {
     return false;
+  }
+};
+
+export const getZapAnalytics = async (shortId: string) => {
+  try {
+    const response = await axios.get(apiUrl(`/api/zaps/${shortId}/analytics`));
+    return response.data;
+  } catch (error) {
+    const err = error as AxiosError<{ message: string }>;
+    throw {
+      message:
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to fetch analytics",
+      status: err.response?.status,
+    } as ApiError;
+  }
+};
+
+export const deleteZap = async (zapId: string, deletionToken: string) => {
+  try {
+    const response = await axios.delete(apiUrl(`/api/zaps/${zapId}`), {
+      data: { deletionToken },
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+    return response.data;
+  } catch (error) {
+    const err = error as AxiosError<{ message: string }>;
+    throw {
+      message:
+        err.response?.data?.message || err.message || "Delete failed",
+      status: err.response?.status,
+      data: err.response?.data,
+    } as ApiError;
+  }
+};
+
+export const getZaps = async (page: number, limit: number) => {
+  try {
+    const response = await axios.get(apiUrl("/api/zaps"), {
+      params: { page, limit },
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error) {
+    const err = error as AxiosError<{ message: string }>;
+    throw {
+      message:
+        err.response?.data?.message || err.message || "Failed to load zaps",
+      status: err.response?.status,
+    } as ApiError;
   }
 };
 

@@ -2,6 +2,17 @@ import { useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 
 const scrollPositions = new Map<string, number>();
+const MAX_SCROLL_POSITIONS = 50;
+
+const setScrollPosition = (path: string, position: number) => {
+  scrollPositions.set(path, position);
+  if (scrollPositions.size > MAX_SCROLL_POSITIONS) {
+    const oldestKey = scrollPositions.keys().next().value as string | undefined;
+    if (oldestKey) {
+      scrollPositions.delete(oldestKey);
+    }
+  }
+};
 
 /**
  * Saves and restores scroll position for a scrollable container
@@ -20,7 +31,7 @@ export function useScrollRestoration(
     return () => {
       const el = containerRef.current;
       if (el) {
-        scrollPositions.set(currentPath, el.scrollTop);
+        setScrollPosition(currentPath, el.scrollTop);
       }
     };
   }, [containerRef]);
@@ -47,7 +58,7 @@ export function useScrollRestoration(
   const savePosition = useCallback(() => {
     const el = containerRef.current;
     if (el) {
-      scrollPositions.set(location.pathname, el.scrollTop);
+      setScrollPosition(location.pathname, el.scrollTop);
     }
   }, [containerRef, location.pathname]);
 

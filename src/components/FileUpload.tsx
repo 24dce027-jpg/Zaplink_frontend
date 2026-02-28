@@ -13,7 +13,7 @@ import {
   FileSpreadsheet,
   Presentation,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "sonner"; // added
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -30,12 +30,6 @@ export interface FileUploadProps {
   onError?: (error: string) => void;
   /** Allow multiple file uploads */
   multiple?: boolean;
-  /** Real-time progress from parent */
-  uploadProgress?: number;
-  /** Is the file currently uploading to the server? */
-  isUploading?: boolean;
-  /** Callback to trigger cancellation of upload */
-  onCancel?: () => void;
 }
 
 interface UploadFileState {
@@ -146,14 +140,12 @@ const FileUpload: React.FC<FileUploadProps> = ({
   onUpload,
   onError,
   multiple = true,
-  uploadProgress = 0,
-  isUploading = false,
-  onCancel,
 }) => {
   const [files, setFiles] = useState<UploadFileState[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
+  const intervalsRef = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
   const objectUrlsRef = useRef<Set<string>>(new Set());
   const isInitialMount = useRef(true);
 
@@ -168,14 +160,17 @@ const FileUpload: React.FC<FileUploadProps> = ({
       .filter((f) => f.status !== "error")
       .map((f) => f.file);
     onUpload(validFiles);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files]);
+  }, [files, onUpload]);
 
   // ── Cleanup on unmount ─────────────────────────────────────────────────────
 
   useEffect(() => {
+    const intervals = intervalsRef.current;
     const objectUrls = objectUrlsRef.current;
     return () => {
+      // Clear all running intervals
+      intervals.forEach((id) => clearInterval(id));
+      intervals.clear();
       // Revoke all object URLs
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
       objectUrls.clear();
@@ -292,6 +287,45 @@ const FileUpload: React.FC<FileUploadProps> = ({
 
   // ── Process files ──────────────────────────────────────────────────────────
 
+  // ── Simulate progress (client-side visual feedback) ──────────────────────
+
+  const simulateUploadProgress = useCallback((fileId: string) => {
+    setFiles((prev) =>
+      prev.map((f) =>
+        f.id === fileId
+          ? { ...f, status: "uploading" as const, progress: 0 }
+          : f,
+      ),
+    );
+
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 25 + 10;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        intervalsRef.current.delete(interval);
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? { ...f, progress: 100, status: "success" as const }
+              : f,
+          ),
+        );
+      } else {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId ? { ...f, progress: Math.min(progress, 99) } : f,
+          ),
+        );
+      }
+    }, 200);
+
+    intervalsRef.current.add(interval);
+  }, []);
+
+  // ── Process files ──────────────────────────────────────────────────────────
+
   const processFiles = useCallback(
     (incoming: FileList | File[]) => {
       const fileArray = Array.from(incoming);
@@ -352,11 +386,12 @@ const FileUpload: React.FC<FileUploadProps> = ({
             error: validationError || undefined,
           };
 
-          // Schedule preview generation
+          // Schedule preview generation and progress simulation
           if (!validationError) {
             // Use setTimeout to ensure state is set before generating preview
             setTimeout(() => {
               generatePreview(file, state.id, detectedType);
+              simulateUploadProgress(state.id);
             }, 0);
           }
 
@@ -369,32 +404,34 @@ const FileUpload: React.FC<FileUploadProps> = ({
         return multiple ? [...prevFiles, ...newStates] : newStates;
       });
     },
-    [maxFiles, multiple, onError, validateFile, generatePreview],
+    [
+      maxFiles,
+      multiple,
+      onError,
+      validateFile,
+      generatePreview,
+      simulateUploadProgress,
+    ],
   );
 
   // ── Remove file ────────────────────────────────────────────────────────────
 
-  const removeFile = useCallback(
-    (fileId: string) => {
-      setFiles((prev) => {
-        const fileState = prev.find((f) => f.id === fileId);
-        // Clean up object URL if it exists (skip data URLs and text:// URLs)
-        if (fileState?.previewUrl && fileState.previewUrl.startsWith("blob:")) {
-          URL.revokeObjectURL(fileState.previewUrl);
-          objectUrlsRef.current.delete(fileState.previewUrl);
-        }
-        return prev.filter((f) => f.id !== fileId);
-      });
-
-      // Trigger cancellation if currently uploading
-      if (isUploading) {
-        onCancel?.();
-      } else {
-        toast.info("File removed");
+  const removeFile = useCallback((fileId: string) => {
+    setFiles((prev) => {
+      const fileState = prev.find((f) => f.id === fileId);
+      // Clean up object URL if it exists (skip data URLs and text:// URLs)
+      if (
+        fileState?.previewUrl &&
+        fileState.previewUrl.startsWith("blob:")
+      ) {
+        URL.revokeObjectURL(fileState.previewUrl);
+        objectUrlsRef.current.delete(fileState.previewUrl);
       }
-    },
-    [isUploading, onCancel],
-  );
+      return prev.filter((f) => f.id !== fileId);
+    });
+    
+    toast.info("File removed"); // <-- ADD THIS LINE
+  }, []);
 
   // ── Drag & Drop handlers ──────────────────────────────────────────────────
 
@@ -646,7 +683,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
                 ${
                   fileState.status === "error"
                     ? "border-destructive/50 bg-destructive/5"
-                    : uploadProgress === 100
+                    : fileState.status === "success"
                       ? "border-primary/30 bg-primary/5"
                       : "border-border bg-muted/20"
                 }
@@ -668,7 +705,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
                     <p className="font-medium text-foreground truncate text-sm sm:text-base">
                       {fileState.file.name}
                     </p>
-                    {uploadProgress === 100 && (
+                    {fileState.status === "success" && (
                       <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0" />
                     )}
                     {fileState.status === "error" && (
@@ -689,27 +726,24 @@ const FileUpload: React.FC<FileUploadProps> = ({
                     </p>
                   )}
 
-                  {/* REAL-TIME PROGRESS BAR */}
-                  {(isUploading || fileState.progress === 100) && (
+                  {/* Progress bar */}
+                  {(fileState.status === "uploading" ||
+                    fileState.status === "success") && (
                     <div className="mt-2">
-                      <div className="h-2 bg-muted rounded-full overflow-hidden shadow-inner">
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all duration-300 ease-out shadow-glow ${
-                            (uploadProgress || fileState.progress) === 100
+                          className={`h-full rounded-full transition-all duration-300 ease-out ${
+                            fileState.status === "success"
                               ? "bg-primary"
-                              : "bg-primary/70 animate-pulse"
+                              : "bg-primary/70"
                           }`}
-                          style={{
-                            // If parent is uploading, use global progress. Otherwise use local state.
-                            width: `${isUploading ? uploadProgress : fileState.progress}%`,
-                          }}
+                          style={{ width: `${fileState.progress}%` }}
                         />
                       </div>
-                      <p className="text-[11px] text-muted-foreground mt-1 font-medium tracking-wide">
-                        {(isUploading ? uploadProgress : fileState.progress) ===
-                        100
-                          ? "Ready & Processing..."
-                          : `${isUploading ? uploadProgress : Math.round(fileState.progress)}% Uploaded`}
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {fileState.status === "success"
+                          ? "Ready"
+                          : `${Math.round(fileState.progress)}%`}
                       </p>
                     </div>
                   )}

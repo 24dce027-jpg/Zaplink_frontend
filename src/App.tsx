@@ -10,12 +10,13 @@ import ZapAnalytics from "./components/ZapAnalytics";
 import AnalyticsLookup from "./components/AnalyticsLookup";
 import UrlShortenerPage from "./components/UrlShortenerPage";
 import Dashboard from "./components/Dashboard";
+// import UrlShortenerPage from "./components/UrlShortenerPage";
 import { Analytics } from "@vercel/analytics/react";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import ScrollToTop from "./components/ScrollToTop";
 import { validateEnvironment } from "./lib/environment";
-
+import ErrorBoundary from "./components/ErrorBoundary";
 
 // Wrapper for ViewZap to show logo-only navbar if password is required
 function ViewZapWrapper() {
@@ -38,7 +39,8 @@ export default function App() {
 
   return (
     <>
-      <Routes>
+      <ErrorBoundary>
+        <Routes>
         <Route
           path="/"
           element={
@@ -133,7 +135,8 @@ export default function App() {
         {/* <Route path="/privacy" element={<><Navbar /><PrivacyPolicy /><Footer /></>} /> */}
         {/* <Route path="/terms" element={<><Navbar /><Terms /><Footer /></>} /> */}
         {/* <Route path="*" element={<NotFound />} /> */}
-      </Routes>
+        </Routes>
+      </ErrorBoundary>
       <ScrollToTop />
       <Analytics />
     </>
